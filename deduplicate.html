@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>1Password Duplicate Inspector — Single HTML</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-950 text-slate-100 text-[14px]">
+  <header class="sticky top-0 z-10 bg-gray-900/90 backdrop-blur border-b border-slate-700">
+    <div class="max-w-screen-2xl mx-auto flex items-center justify-between gap-3 px-4 py-3">
+      <h1 class="m-0 text-base font-bold tracking-tight">1Password Duplicate Inspector</h1>
+      <div class="flex flex-wrap items-center gap-2">
+        <button id="loadSample" class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110">Load sample</button>
+        <label class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110 cursor-pointer" title="Upload 1PUX export.data (unzipped) or export.attributes">
+          <input type="file" id="file" accept="application/json,.1pux" class="hidden">Upload 1PUX / JSON
+        </label>
+        <button id="scan" class="px-3 py-2 rounded-lg font-semibold text-slate-900 bg-teal-400 hover:brightness-110">Scan for duplicates</button>
+        <button id="exportPlan" class="px-3 py-2 rounded-lg border border-amber-600 bg-amber-900/30 hover:brightness-110" title="Export JSON listing items to delete">Export delete plan</button>
+        <button id="downloadClean" class="px-3 py-2 rounded-lg border border-rose-600 bg-rose-900/30 hover:brightness-110" title="Download JSON with deletions applied">Download cleaned JSON</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="max-w-screen-2xl mx-auto grid md:grid-cols-12 min-h-[calc(100dvh-56px)] gap-0">
+    <!-- Sidebar -->
+    <aside class="md:col-span-4 border-r border-slate-700 bg-gray-900 p-4 flex flex-col gap-3 order-2 md:order-1">
+      <div class="border border-slate-700 rounded-xl p-3 text-sm">
+        <strong class="block">How to load 1PUX</strong>
+        <ol class="list-decimal ml-5 mt-2 space-y-1 text-slate-300">
+          <li>Export <code>.1pux</code> from 1Password.</li>
+          <li>Unzip it (it’s a ZIP) and open the folder.</li>
+          <li>Upload <code>export.data</code> (optional: <code>export.attributes</code>).</li>
+        </ol>
+        <p class="mt-2 text-xs text-slate-400">We only need <code>export.data</code>. Files in <code>files/</code> are ignored.</p>
+      </div>
+
+      <div class="border border-slate-700 rounded-xl p-3">
+        <div class="flex items-center justify-between">
+          <strong>Or paste JSON directly</strong>
+          <small class="text-slate-400">1PUX <code>export.data</code> schema</small>
+        </div>
+        <textarea id="input" class="mt-2 w-full h-44 rounded-lg border border-slate-700 bg-slate-900 p-2 font-mono text-slate-100"></textarea>
+        <div class="mt-2 flex gap-2">
+          <button id="prettify" class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110">Prettify</button>
+        </div>
+      </div>
+
+      <div class="border border-slate-700 rounded-xl p-3">
+        <strong>Match rules</strong>
+        <div class="grid grid-cols-2 gap-2 mt-2 text-sm">
+          <label class="flex items-center gap-2"><input type="checkbox" class="rule" value="title" checked>Title</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="rule" value="urlHost" checked>URL host</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="rule" value="username" checked>Username</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="rule" value="password">Password</label>
+          <label class="flex items-center gap-2"><input type="checkbox" class="rule" value="category">Category</label>
+        </div>
+        <label class="mt-2 block text-sm"><input type="checkbox" id="withinAccount" checked class="mr-2"> Group across vaults (same account)</label>
+        <label class="block text-sm"><input type="checkbox" id="withinVault" class="mr-2"> Only within each vault</label>
+        <label class="block text-sm"><input type="checkbox" id="trailingSlash" checked class="mr-2"> Ignore trailing slashes in URLs</label>
+        <label class="block text-sm"><input type="checkbox" id="www" checked class="mr-2"> Ignore leading <code>www.</code></label>
+      </div>
+
+      <div class="border border-slate-700 rounded-xl p-3 text-sm">
+        <strong>Auto-pick keeper</strong>
+        <label class="mt-2 block"><input type="radio" name="keeper" value="latest" checked class="mr-2">Newest <span class="text-slate-400">(highest <code>updatedAt</code>)</span></label>
+        <label class="block"><input type="radio" name="keeper" value="ps" class="mr-2">Strongest password score <span class="text-slate-400">(overview.ps)</span></label>
+        <label class="block"><input type="radio" name="keeper" value="vaultPref" class="mr-2">Prefer vault named… <input id="vaultPref" placeholder="e.g. Personal" class="ml-2 w-40 rounded-md border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs" /></label>
+        <button id="selectBest" class="mt-2 px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110">Select best & mark others for deletion</button>
+      </div>
+
+      <div class="border border-slate-700 rounded-xl p-3 text-sm">
+        <strong>Legend</strong>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🗃️ Vault</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">👤 Username</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🔗 URL</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🕒 Updated</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🔑 PS</span>
+          <span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🔒 Password</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="md:col-span-8 p-4 order-1 md:order-2">
+      <div id="summary" class="border border-slate-700 rounded-xl p-3"></div>
+      <div id="results"></div>
+      <div class="sticky bottom-0 mt-4 bg-gradient-to-b from-transparent via-[rgba(9,12,24,0.75)] to-[rgba(9,12,24,1)] backdrop-blur pt-2">
+        <div class="flex items-center gap-3">
+          <div id="selectionCount" class="text-xs text-slate-400 flex-1">0 selected for deletion</div>
+          <button id="clearSelection" class="px-3 py-2 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110">Clear selection</button>
+        </div>
+      </div>
+    </main>
+  </div>
+
+<script>
+(function(){
+  const inputEl = document.getElementById('input');
+  const fileEl = document.getElementById('file');
+  const resultsEl = document.getElementById('results');
+  const summaryEl = document.getElementById('summary');
+  const selectionCountEl = document.getElementById('selectionCount');
+
+  const state = {
+    data: null,
+    attributes: null, // export.attributes
+    groups: [],
+    selectedToDelete: new Set(), // "ai|vi|uuid"
+  };
+
+  const fmtDate = (ts)=> ts ? new Date(ts*1000).toISOString().replace('T',' ').replace('.000Z','Z') : '';
+  const hostFromUrl = (u, opts)=>{
+    if(!u) return '';
+    try{
+      if(!/^https?:\/\//i.test(u)) u = 'https://' + u;
+      const url = new URL(u);
+      let h = url.hostname.toLowerCase();
+      if(opts.www && h.startsWith('www.')) h = h.slice(4);
+      return h;
+    }catch{
+      return opts.trailingSlash ? String(u).replace(/\/?$/, '') : String(u);
+    }
+  };
+  const getLoginFields = (item)=> Array.isArray(item?.details?.loginFields) ? item.details.loginFields : [];
+  const getUsername = (item)=>{
+    const lf = getLoginFields(item);
+    let u = lf.find(f => (f.designation||'').toLowerCase()==='username' || (f.name||'').toLowerCase()==='username' || (f.name||'').toLowerCase()==='email')?.value;
+    if(!u) u = item?.overview?.subtitle || '';
+    return (u||'').toLowerCase().trim();
+  };
+  const getPassword = (item)=>{
+    const lf = getLoginFields(item);
+    let p = lf.find(f => (f.designation||'').toLowerCase()==='password' || (f.name||'').toLowerCase()==='password')?.value;
+    return (p==null? '' : String(p));
+  };
+  const getCategory = (item)=> item?.categoryUuid || '';
+  const getTitle = (item)=> (item?.overview?.title || '').toLowerCase().trim();
+  const getUrl = (item)=> (item?.overview?.url || (item?.overview?.urls?.[0]?.url) || '').trim();
+  const getPs = (item)=> Number(item?.overview?.ps || 0);
+
+  const getRules = ()=>({
+    keys: Array.from(document.querySelectorAll('.rule:checked')).map(el=>el.value),
+    withinAccount: document.getElementById('withinAccount').checked,
+    withinVault: document.getElementById('withinVault').checked,
+    trailingSlash: document.getElementById('trailingSlash').checked,
+    www: document.getElementById('www').checked
+  });
+
+  function buildIndex(data){
+    const rules = getRules();
+    const groups = [];
+
+    data.accounts.forEach((acct, ai)=>{
+      const vaults = acct.vaults||[];
+      const pushGroup = (key, records)=>{ if(records.length>1) groups.push({key, records}); };
+
+      const allRecords = [];
+      vaults.forEach((v, vi)=>{
+        (v.items||[]).forEach(item=>{
+          const rec = { accountIndex: ai, vaultIndex: vi, vaultName: v.attrs?.name||'', vaultUuid: v.attrs?.uuid||'', item, uuid: item.uuid };
+          allRecords.push(rec);
+        });
+      });
+
+      if(rules.withinVault){
+        vaults.forEach((v, vi)=>{
+          const recs = allRecords.filter(r=>r.vaultIndex===vi);
+          groupRecords(recs, rules, pushGroup);
+        });
+      }else{
+        groupRecords(allRecords, rules, pushGroup);
+      }
+    });
+
+    state.groups = groups.sort((a,b)=> b.records.length - a.records.length);
+  }
+
+  function groupRecords(records, rules, push){
+    if(!records || !records.length) return;
+    const map = new Map();
+    records.forEach(rec=>{
+      const i = rec.item;
+      const parts = [];
+      if(rules.keys.includes('title')) parts.push('t:' + getTitle(i));
+      if(rules.keys.includes('urlHost')) parts.push('h:' + hostFromUrl(getUrl(i), rules));
+      if(rules.keys.includes('username')) parts.push('u:' + getUsername(i));
+      if(rules.keys.includes('password')) parts.push('p:' + getPassword(i));
+      if(rules.keys.includes('category')) parts.push('c:' + getCategory(i));
+      const key = parts.join('|');
+      if(!map.has(key)) map.set(key, []);
+      map.get(key).push(rec);
+    });
+    for(const [key, recs] of map.entries()) push(key, recs);
+  }
+
+  function render(){
+    const totalDupGroups = state.groups.length;
+    const totalDupItems = state.groups.reduce((n,g)=> n + g.records.length, 0);
+
+    summaryEl.innerHTML = `
+      <div class="flex items-center gap-2">
+        <div class="flex-1">
+          <div><strong>Duplicate groups:</strong> ${totalDupGroups}</div>
+          <div class="text-xs text-slate-400">Items inside groups: ${totalDupItems}</div>
+        </div>
+        <div class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">Rules: ${(getRules().keys.join(', ')||'—')}</div>
+        ${state.attributes? `<div class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">1PUX v${state.attributes.version} • ${fmtDate(state.attributes.createdAt)}</div>`:''}
+      </div>`;
+
+    const fr = document.createDocumentFragment();
+
+    state.groups.forEach((g, gi)=>{
+      const group = document.createElement('div');
+      group.className='border border-slate-700 rounded-xl p-3 my-3';
+
+      const keyParts = Object.fromEntries((g.key||'').split('|').map(p=>[p.slice(0,1), p.slice(2)]));
+      group.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+          <div class="flex flex-wrap items-center gap-2">
+            ${keyParts.t? `<span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">Title: <strong>${escapeHtml(keyParts.t)}</strong></span>`: ''}
+            ${keyParts.h? `<span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">Host: <strong>${escapeHtml(keyParts.h)}</strong></span>`: ''}
+            ${keyParts.u? `<span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">User: <strong>${escapeHtml(keyParts.u)}</strong></span>`: ''}
+            ${keyParts.p? `<span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">Pwd hash: <strong>${hash(keyParts.p)}</strong></span>`: ''}
+          </div>
+          <div class="flex gap-2">
+            <button class="px-2 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110 text-xs" data-act="keepLatest" data-gi="${gi}">Keep newest</button>
+            <button class="px-2 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110 text-xs" data-act="keepPS" data-gi="${gi}">Keep strongest</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto rounded-lg">
+          <table class="w-full min-w-[820px] border-separate border-spacing-0">
+            <thead>
+              <tr class="bg-gray-900">
+                <th class="text-left px-3 py-2 border-b border-slate-700 w-8"></th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Vault</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Title</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Username</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">URL</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Updated</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Created</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">PS</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">Password</th>
+                <th class="text-left px-3 py-2 border-b border-slate-700">UUID</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      `;
+
+      const tbody = group.querySelector('tbody');
+      const recs = g.records.slice().sort((a,b)=> (b.item.updatedAt||0)-(a.item.updatedAt||0));
+
+      const pwdSet = new Set(recs.map(r=> getPassword(r.item)));
+      const allSamePwd = pwdSet.size <= 1;
+
+      recs.forEach((rec)=>{
+        const {vaultName,item,uuid} = rec;
+        const tr = document.createElement('tr');
+        const key = `${rec.accountIndex}|${rec.vaultIndex}|${uuid}`;
+        const pwd = getPassword(item);
+        const same = allSamePwd || recs.every(r=> getPassword(r.item) === pwd);
+        tr.className = same? 'bg-emerald-950/30 hover:bg-emerald-900/30' : 'bg-rose-950/30 hover:bg-rose-900/30';
+        const inputId = `pwd-${uuid}`;
+        tr.innerHTML = `
+          <td class="px-3 py-2 border-b border-slate-700"><input type="checkbox" data-key="${key}" class="delChk" ${state.selectedToDelete.has(key)?'checked':''}></td>
+          <td class="px-3 py-2 border-b border-slate-700"><span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🗃️ ${escapeHtml(vaultName||'')}</span></td>
+          <td class="px-3 py-2 border-b border-slate-700">${escapeHtml(item?.overview?.title||'')}</td>
+          <td class="px-3 py-2 border-b border-slate-700"><span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">👤 ${escapeHtml(getUsername(item))||'—'}</span></td>
+          <td class="px-3 py-2 border-b border-slate-700"><span class="text-xs font-mono">🔗 ${escapeHtml(getUrl(item)||'')}</span></td>
+          <td class="px-3 py-2 border-b border-slate-700 text-xs">🕒 ${fmtDate(item.updatedAt)}</td>
+          <td class="px-3 py-2 border-b border-slate-700 text-xs">${fmtDate(item.createdAt)}</td>
+          <td class="px-3 py-2 border-b border-slate-700"><span class="inline-flex items-center gap-1 rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-xs">🔑 ${getPs(item)}</span></td>
+          <td class="px-3 py-2 border-b border-slate-700">
+            <div class="flex items-center gap-2">
+              <input type="password" value="${escapeHtml(pwd)}" id="${inputId}" readonly class="w-52 max-w-[40vw] rounded-md border border-slate-700 bg-slate-900 px-2 py-1 text-slate-100">
+              <button class="px-2 py-1 rounded-lg border border-slate-700 bg-slate-900 hover:brightness-110 text-xs" data-act="togglePwd" data-target="${inputId}">Show</button>
+              <span class="text-xs text-slate-400">${pwd? pwd.length : 0} chars</span>
+            </div>
+          </td>
+          <td class="px-3 py-2 border-b border-slate-700 text-xs font-mono">${uuid}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      fr.appendChild(group);
+    });
+
+    resultsEl.replaceChildren(fr);
+    updateSelectionCount();
+  }
+
+  function escapeHtml(s){
+    return (s+'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  }
+  function hash(str){ let h=0; for(let i=0;i<str.length;i++){h=((h<<5)-h)+str.charCodeAt(i); h|=0} return (h>>>0).toString(36); }
+
+  function parseInput(){
+    try{
+      const data = JSON.parse(inputEl.value);
+      if(!data?.accounts) throw new Error('Missing accounts[]');
+      state.data = data; return true;
+    }catch(e){ alert('Invalid JSON: ' + (e?.message||e)); return false; }
+  }
+
+  function updateSelectionCount(){ selectionCountEl.textContent = `${state.selectedToDelete.size} selected for deletion`; }
+
+  function autoSelectInGroup(gi, mode){
+    const g = state.groups[gi]; if(!g) return;
+    let keeperIdx = 0;
+    if(mode==='latest'){
+      keeperIdx = g.records.reduce((best,i,idx,arr)=> (i.item.updatedAt||0) > (arr[best].item.updatedAt||0) ? idx : best, 0);
+    } else if(mode==='ps'){
+      keeperIdx = g.records.reduce((best,i,idx,arr)=> (getPs(i.item)) > (getPs(arr[best].item)) ? idx : best, 0);
+    } else if(mode==='vaultPref'){
+      const pref = (document.getElementById('vaultPref').value||'').toLowerCase();
+      if(pref){ const idx = g.records.findIndex(r=> (r.vaultName||'').toLowerCase()===pref); keeperIdx = idx>=0? idx : 0; }
+    }
+    g.records.forEach((r, idx)=>{
+      const key = `${r.accountIndex}|${r.vaultIndex}|${r.uuid}`;
+      if(idx===keeperIdx) state.selectedToDelete.delete(key); else state.selectedToDelete.add(key);
+    });
+  }
+
+  function applyDeletionPlanToData(){
+    if(!state.data) return null;
+    const clone = JSON.parse(JSON.stringify(state.data));
+    clone.accounts.forEach((acct, ai)=>{
+      (acct.vaults||[]).forEach((v, vi)=>{
+        v.items = (v.items||[]).filter(it=>{
+          const key = `${ai}|${vi}|${it.uuid}`;
+          return !state.selectedToDelete.has(key);
+        });
+      });
+    });
+    return clone;
+  }
+
+  // Events
+  document.getElementById('scan').addEventListener('click', ()=>{ if(!parseInput()) return; buildIndex(state.data); render(); });
+  document.getElementById('prettify').addEventListener('click', ()=>{ try{ inputEl.value = JSON.stringify(JSON.parse(inputEl.value), null, 2); } catch(e){ alert('Cannot prettify: ' + (e?.message||e)); } });
+  document.getElementById('loadSample').addEventListener('click', ()=>{ inputEl.value = JSON.stringify(sampleData, null, 2); });
+
+  // File loader: export.attributes & export.data (unzipped .1pux)
+  fileEl.addEventListener('change', async (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const name = (file.name||'').toLowerCase();
+    if(name.endsWith('.1pux')){ alert('Unzip .1pux then choose export.data (or export.attributes).'); e.target.value=''; return; }
+    const text = await file.text();
+    try{
+      const json = JSON.parse(text);
+      if(json.version && json.description && json.createdAt){ state.attributes = json; alert('Loaded export.attributes (v '+json.version+'). Now select export.data.'); }
+      else if(json.accounts){ inputEl.value = JSON.stringify(json, null, 2); }
+      else { alert('Unrecognized JSON. Expect 1PUX export.data or export.attributes.'); }
+    }catch(err){ alert('Invalid JSON: ' + (err?.message||err)); }
+    e.target.value='';
+  });
+
+  resultsEl.addEventListener('change', (e)=>{
+    const chk = e.target.closest('.delChk'); if(!chk) return;
+    if(chk.checked) state.selectedToDelete.add(chk.dataset.key);
+    else state.selectedToDelete.delete(chk.dataset.key);
+    updateSelectionCount();
+  });
+
+  resultsEl.addEventListener('click', (e)=>{
+    const btn = e.target.closest('button'); if(!btn) return;
+    const gi = Number(btn.dataset.gi);
+    if(btn.dataset.act==='keepLatest'){ autoSelectInGroup(gi, 'latest'); render(); }
+    else if(btn.dataset.act==='keepPS'){ autoSelectInGroup(gi, 'ps'); render(); }
+    else if(btn.dataset.act==='togglePwd'){
+      const id = btn.dataset.target; const inp = document.getElementById(id); if(!inp) return;
+      if(inp.type==='password'){ inp.type='text'; btn.textContent='Hide'; } else { inp.type='password'; btn.textContent='Show'; }
+    }
+  });
+
+  document.getElementById('selectBest').addEventListener('click', ()=>{
+    const mode = document.querySelector('input[name="keeper"]:checked')?.value;
+    state.groups.forEach((_, gi)=> autoSelectInGroup(gi, mode==='vaultPref'?'vaultPref':mode));
+    render();
+  });
+
+  document.getElementById('clearSelection').addEventListener('click', ()=>{ state.selectedToDelete.clear(); render(); });
+
+  document.getElementById('exportPlan').addEventListener('click', ()=>{
+    if(!state.data){ alert('Load & scan first.'); return; }
+    const arr = Array.from(state.selectedToDelete);
+    const plan = arr.map(k=>{
+      const [ai,vi,uuid] = k.split('|');
+      const acct = state.data?.accounts?.[ai];
+      const vault = acct?.vaults?.[vi];
+      return { account: acct?.attrs?.email || acct?.attrs?.name, accountUuid: acct?.attrs?.uuid, vault: vault?.attrs?.name, vaultUuid: vault?.attrs?.uuid, itemUuid: uuid };
+    });
+    download('1p-duplicate-delete-plan.json', JSON.stringify({ toDelete: plan }, null, 2));
+  });
+
+  document.getElementById('downloadClean').addEventListener('click', ()=>{ if(!state.data){ alert('Scan first.'); return; } const cleaned = applyDeletionPlanToData(); download('1p-cleaned.json', JSON.stringify(cleaned, null, 2)); });
+
+  function download(filename, text){ const blob = new Blob([text], {type:'application/json'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click(); URL.revokeObjectURL(a.href); }
+
+  // 1PUX-style sample
+  const sampleData = {
+    "accounts": [
+      {
+        "attrs": {
+          "accountName": "Wendy Appleseed",
+          "name": "Wendy Appleseed",
+          "avatar": "profile-pic.png",
+          "email": "wendy.c.appleseed@gmail.com",
+          "uuid": "D4RI47B7BJDT25C2LWA7LEJLHZ",
+          "domain": "https://my.1password.com/"
+        },
+        "vaults": [
+          {
+            "attrs": {"uuid": "rr3lr6c2opoggvrete23q72ahi","desc": "","avatar": "pic.png","name": "Personal","type": "P"},
+            "items": [
+              {"uuid": "fkruyzrldvizuqlnavfj3gltfe","favIndex": 1,"createdAt": 1614298956,"updatedAt": 1635346445,"state": "active","categoryUuid": "001","details": {"loginFields": [{"value": "most-secure-password-ever!","id": "","name": "password","fieldType": "P","designation": "password"},{"value": "wendy@example.com","id": "","name": "username","fieldType": "T","designation": "username"}],"notesPlain": "This is a note.","sections": [],"passwordHistory": [{"value": "12345password","time": 1458322355}]}, "overview": {"subtitle": "wendy@example.com","urls": [{"label": "","url": "https://www.dropbox.com/"}],"title": "Dropbox","url": "https://www.dropbox.com/","ps": 100,"pbe": 86.13621,"pgrng": true}},
+              {"uuid": "dup123","favIndex": 0,"createdAt": 1614298956,"updatedAt": 1635346400,"state": "active","categoryUuid": "001","details": {"loginFields": [{"value": "most-secure-password-ever!","id": "","name": "password","fieldType": "P","designation": "password"},{"value": "wendy@example.com","id": "","name": "username","fieldType": "T","designation": "username"}]}, "overview": {"subtitle": "wendy@example.com","urls": [{"label": "","url": "https://dropbox.com"}],"title": "Dropbox","url": "https://dropbox.com","ps": 95}}
+            ]
+          }
+        ]
+      }
+    ]
+  };
+
+  // Load sample by default
+  inputEl.value = JSON.stringify(sampleData, null, 2);
+})();
+</script>
+</body>
+</html>

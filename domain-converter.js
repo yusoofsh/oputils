@@ -13,8 +13,7 @@ function mapDomainToGenericName(domainTitle) {
     }
 
     // Remove protocol if present and trailing slashes
-    const domain = domainTitle.replace(/^https?:\/\//, '').replace(/\/+$/, '').replace(/^([^\/]+).*$/, '$1');
-
+    const domain = domainTitle.replace(/^https?:\/\//, '').replace(/\/+$/, '').replace(/^([^/]+).*$/, '$1');
 
     // Individual domain mappings for exact matches
     const exactMatches = {

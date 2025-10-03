@@ -52,7 +52,7 @@ function extractTOTPs(filePath) {
                                                         const issuer = item.overview?.title || 'Unknown';
 
                                                         // Find account/email by converting entire item to string and using regex
-                                                        let account = 'yusoofsh'; // Default account as requested
+                                                        let account = 'user'; // Default account as requested
                                                         const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
 
                                                         // Convert entire item object to JSON string and search for emails
@@ -92,7 +92,7 @@ function extractTOTPs(filePath) {
                                                                 if (!finalIssuer || finalIssuer === 'Unknown') {
                                                                     finalIssuer = uriIssuer || uriAccount.split(':')[0] || 'Unknown';
                                                                 }
-                                                                if (!finalAccount || finalAccount === 'yusoofsh') {
+                                                                if (!finalAccount || finalAccount === 'user') {
                                                                     finalAccount = uriAccount || 'Unknown';
                                                                 }
 

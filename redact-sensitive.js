@@ -61,9 +61,9 @@ const DEFAULT_CONFIG = {
 	sensitivePatterns: [
 		/^\d{4,6}$/, // PIN-like numbers (4-6 digits)
 		/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i, // UUID format
-		/^most-secure-password-ever!$/i, // Example password pattern
-		/^12345password$/i, // Example password history pattern
-		/^wendy\.c\.appleseed@gmail\.com$/i, // Example email pattern
+		/^testpass123!$/i, // Example password pattern
+		/^fakepassword456$/i, // Example password history pattern
+		/^test@example\.com$/i, // Example email pattern
 	],
 
 	// Replacement text for sensitive values
